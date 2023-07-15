@@ -1,0 +1,153 @@
+#!/bin/bash
+
+#Network Project - simple script to run to install necessary software and able to check and scan of an IP address that is keyed in.
+#May have to save the file as .sh extenstion
+
+#files that will be created:
+#1. Details.txt
+#2. Whois.txt
+#3. Openports.txt
+#4. audit.log
+
+#1.1 install all applications on remote server
+
+sudo apt-get -y update #update your kali linux before installing applications
+sudo apt-get -y upgrade #upgrade your kali linux before installing applications
+
+originalDir=$(pwd) #create a variable to store current directory - used to store text files later.
+
+#install whois
+echo "checking if whois already installed"
+whozis=$(which whois) #check directory of whois
+if [ -z $whozis ]
+then
+	sudo apt -y install whois
+else
+	echo "whois is installed at" $whozis
+fi
+
+#install tor
+echo "checking if tor already installed"
+torinstalled=$(which tor) #check directory of tor
+if [ -z $torinstalled ]
+then
+	sudo apt-get -y install tor
+else
+	echo "tor is installed at" $torinstalled
+fi
+
+#install Nmap
+echo "checking if NMAP already installed"
+nmappy=$(which nmap) #check directory of nmap
+if [ -z $nmappy ]
+then
+	sudo apt-get -y install nmap
+else
+	echo "nmap is installed at" $nmappy
+fi
+
+#install geoip-bin
+echo "checking if geoip-bin already installed"
+geoipbin=$(find / -name geoip-bin 2>/dev/null) #check directory of geoip-bin
+if [ -z $geoipbin ]
+then
+	sudo apt-get -y install geoip-bin
+else
+	echo "geoip-bin is installed at" $geoipbin
+fi
+
+#install nipe.pl
+echo "checking if nipe already installed"
+nipper=$(find / -name nipe.pl 2>/dev/null) #check if nipe is already installed and returns a value if installed. If not installed, no values are returned.
+if [ -z $nipper ] #check if nipe is empty.
+then #nipe is not installed so trying to install now
+	git clone https://github.com/htrgouvea/nipe && cd nipe
+	sudo cpan install Try::Tiny Config::Simple JSON
+	cd nipe
+	sudo perl nipe.pl install
+	nipedirectory=$(find / -type d -name nipe 2>/dev/null) #find directory of nipe after installation
+else
+	nipedirectory=$(find / -type d -name nipe 2>/dev/null) #find directory of nipe since nipe is installed.
+	echo "nipe.pl is available at" $nipper
+fi
+
+#2.1 - Display the Details of the remote server (country, IP & Uptime, this is run before Nipe starts to get the accurate data of the remote server)
+
+upTime=$(uptime)
+
+#Check current external IP of remote server.
+myexternalIP=$(curl ifconfig.co) #get my current external IP address before going to anonymous mode.
+myexternalIPcountry=$(geoiplookup $myexternalIP)
+
+echo "your IP before Nipe runs is: "$myexternalIP "and located at " $myexternalIPcountry
+
+#1.3 start nipe
+echo "We are going to Nipe Directory at: "$nipedirectory "in order to start nipe"
+cd $nipedirectory #go to nipe directory and start nipe.pl
+sudo perl nipe.pl start
+sudo perl nipe.pl stop
+sudo perl nipe.pl restart
+sudo perl nipe.pl status
+#check if currently is anonymous IP address
+nipeExternalIP=$(sudo perl nipe.pl status | grep Ip | awk '{print $(NF-0)}') #get IP Address of Anonymous IP and return IP address if there is data, otherwise if no data do not return anything.
+echo $nipeExternalIP
+if [ -z $nipeExternalIP ] #check if there is any data in nipeExternalIP.
+	then
+	echo "The network connection is not anonymous. We will end the script now." #if there no data in nipeExternalIP, that means Nipe is not running and the network is not anynomous
+	sudo perl nipe.pl stop
+	else
+		echo "The network connection is anonymous. We can continue the script now." #there is data in nipeExternalIP, so Nipe is running and network is anonymous
+			cd $originalDir #return back to original directory because we are going to create files in there ant not in Nipe directory.
+			nipecountry=$(geoiplookup $nipeExternalIP) #return anonymous country.
+			echo "our anonymouse network country is "$nipecountry "instead of our non-anonymouse network country of "$myexternalIPcountry #assure user that network is definetly anonymous and tell user of the anonymous country.
+			echo " "
+			echo " "
+			#2a. Enter the Remote IPAddress you want to connect to:
+			echo "Enter the Remote IP Address you want to connect to:"
+			read reIPAddress
+			echo "You are going to connect to " $reIPAddress
+
+			#2.1
+			echo "The server Uptime is :" $upTime
+			echo "My current IP address before Nipe is" $myexternalIP "and located in" $myexternalIPcountry
+			
+			#2.2
+			whoseDetail=$(whois $reIPAddress)
+
+			#2.3
+			openPorts=$(nmap -F $reIPAddress)
+
+			
+			#3.1
+			echo "The Server IP address before Nipe runs is" $myexternalIP >> Details.txt
+			echo $(date) "- [*] geoiplookup data is collected for" $myexternalIP >> audit.log
+			echo "The server Country before Nipe runs is :" $myexternalIPcountry >> Details.txt
+			echo $(date) "- [*] geoiplookup data is collected for" $myexternalIP >> audit.log
+			echo "The Server IP address after Nipe runs is" $nipeExternalIP >> Details.txt
+			echo $(date) "- [*] geoiplookup data is collected for" $myexternalIP >> audit.log
+			echo "The server Country after Nipe runs is :" $nipecountry >> Details.txt
+			echo $(date) "- [*] geoiplookup data is collected for" $myexternalIP >> audit.log
+			echo "The server Uptime is :" $upTime >> Details.txt
+			echo $(date) "- [*] Server uptime data is collected for" $myexternalIP >> audit.log
+			echo $whoseDetail >> Whois.txt
+			echo $(date) "- [*] Whois data is collected for" $reIPAddress >> audit.log
+			echo $openPorts >> Openports.txt
+			echo $(date) "- [*] Nmap data is collected for" $reIPAddress >> audit.log
+
+			datasavedpath=$(pwd) #get current directory
+
+			echo "Victim Address, IP & Uptime was saved into : " $datasavedpath"/"Details.txt
+			echo "Whois data was saved into : " $datasavedpath"/"Whois.txt
+			echo "Victim Nmap scan was saved into : " $datasavedpath"/"Openports.txt
+			
+			cd $nipedirectory #go back to nipe directory as we want to stop the service.
+			sudo perl nipe.pl stop
+			currentNipestatus=$(sudo perl nipe.pl status)
+			echo "Nipe is stopped and you are back at your original IP:" $currentNipestatus
+			
+			
+fi
+
+
+
+
